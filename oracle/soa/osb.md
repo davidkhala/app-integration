@@ -38,6 +38,7 @@ Integration
 
 # Install
 For a development or evaluation distribution, download the [Oracle SOA Suite Quick Start for Developers](https://www.oracle.com/middleware/technologies/soasuite/downloads.html#)
+- bundled together with [Oracle BPM](../bpm/README.md)
 
 # For a production environment
 
