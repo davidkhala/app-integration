@@ -61,6 +61,22 @@ async def resume(nonce: str = Query(..., description="Nonce of the gate to clear
     finally:
         await r.aclose()
 
+
+@app.delete("/reset")
+async def reset_gates():
+    """publish resume to all active gate channels and return how many were reset"""
+    r = await get_redis()
+    try:
+        channels = await r.pubsub_channels(f"{GATE_CHANNEL_PREFIX}*")
+        count = 0
+        for ch in channels:
+            receivers = await r.publish(ch, "resume")
+            if receivers > 0:
+                count += 1
+        return JSONResponse(content={"reset": count})
+    finally:
+        await r.aclose()
+
 @app.get("/list")
 async def list_gates():
     """show all active (un-resumed) gates"""
