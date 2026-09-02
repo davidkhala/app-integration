@@ -34,20 +34,30 @@ async def sleep(seconds: float = Query(..., description="Number of seconds to wa
 async def wait_until(
     nonce: str = Query(..., description="Unique identifier for this gate"),
 ):
-    """set a gate in Redis, block until /resume clears it"""
+    """Block until /resume clears this gate.
+
+    Idempotent: if a subscriber for this nonce is already waiting, the
+    duplicate call returns 204 immediately without creating a second gate.
+    """
     r = await get_redis()
+    channel = _gate_channel(nonce)
+
+    # Check whether another request is already waiting on this nonce.
+    # PUBSUB NUMSUB returns [(channel, subscriber_count), ...].
+    numsub = await r.pubsub_numsub(channel)
+    already_waiting = next((cnt for ch, cnt in numsub if ch == channel), 0) > 0
+    if already_waiting:
+        await r.aclose()
+        return Response(status_code=204)
+
     pubsub = r.pubsub()
     try:
-        await pubsub.subscribe(_gate_channel(nonce))
+        await pubsub.subscribe(channel)
         async for message in pubsub.listen():
             if message["type"] == "message":
                 return Response(status_code=204)
     finally:
-        # Explicitly UNSUBSCRIBE before closing so Redis removes this
-        # connection from the channel's subscriber list immediately via
-        # the protocol, rather than waiting for the server to detect the
-        # TCP disconnect (which can take several seconds).
-        await pubsub.unsubscribe(_gate_channel(nonce))
+        await pubsub.unsubscribe(channel)
         await pubsub.aclose()
         await r.aclose()
 
