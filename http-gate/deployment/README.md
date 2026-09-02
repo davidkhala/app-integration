@@ -7,5 +7,6 @@ docker compose up --build
 
 ## gcp cloud run
 ```
-gcloud run compose up docker-compose.yml --region=asia-east2 --allow-unauthenticated
+gcloud components install run-compose
+gcloud run compose up --region=asia-east2 --allow-unauthenticated
 ```

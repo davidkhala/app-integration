@@ -30,7 +30,6 @@ async def sleep(seconds: float = Query(..., description="Number of seconds to wa
     await asyncio.sleep(seconds)
 
 
-
 @app.get("/pause", status_code=204, response_class=Response)
 async def wait_until(
     nonce: str = Query(..., description="Unique identifier for this gate"),
@@ -44,14 +43,18 @@ async def wait_until(
             if message["type"] == "message":
                 return Response(status_code=204)
     finally:
+        # Explicitly UNSUBSCRIBE before closing so Redis removes this
+        # connection from the channel's subscriber list immediately via
+        # the protocol, rather than waiting for the server to detect the
+        # TCP disconnect (which can take several seconds).
+        await pubsub.unsubscribe(_gate_channel(nonce))
         await pubsub.aclose()
         await r.aclose()
 
 
-
 @app.get("/resume", status_code=204, response_class=Response)
 async def resume(nonce: str = Query(..., description="Nonce of the gate to clear")):
-    """delete the gate key so /pause unblocks"""
+    """publish resume signal so /pause unblocks"""
     r = await get_redis()
     try:
         receivers = await r.publish(_gate_channel(nonce), "resume")
@@ -73,9 +76,18 @@ async def reset_gates():
             receivers = await r.publish(ch, "resume")
             if receivers > 0:
                 count += 1
+            # Wait until the subscriber has fully unsubscribed before returning,
+            # so that a /list immediately after /reset sees a clean state.
+            while True:
+                remaining = await r.pubsub_numsub(ch)
+                # pubsub_numsub returns a list of (channel, count) tuples
+                if next((count for channel, count in remaining if channel == ch), 0) == 0:
+                    break
+                await asyncio.sleep(0.05)
         return JSONResponse(content={"reset": count})
     finally:
         await r.aclose()
+
 
 @app.get("/list")
 async def list_gates():
